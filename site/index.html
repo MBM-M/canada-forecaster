@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="soft" data-ground="painting" data-buttons="arrow" data-motion>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Canada Forecaster: wage, shelter and job forecasts for Canada</title>
+<meta name="description" content="An open-source Python dashboard that projects wages and shelter costs for ten provinces and jobs in 28 industries to 2027, from Statistics Canada data.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Canada Forecaster: wage, shelter and job forecasts for Canada">
+<meta property="og:description" content="Two models trained on Statistics Canada data from 2014 to 2024, projected to 2027.">
+<meta property="og:image" content="share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f0f0f">
+<!-- <link rel="canonical" href="https://[the project's domain]/"> -->
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/system.css">
+<link rel="stylesheet" href="assets/ui/cards.css">
+<link rel="stylesheet" href="assets/motion/motion.css">
+<link rel="stylesheet" href="assets/backgrounds/backgrounds.css">
+<link rel="stylesheet" href="assets/layout/layout.css">
+<link rel="stylesheet" href="assets/icons/icon.css">
+<style>
+:root {
+  --p-bg: #0f0f0f; --p-surface: #1a1a1a; --p-ink: #ffffff; --p-muted: #8f8f8f;
+  --p-accent: #dafa9c; --p-accent-ink: #0f0f0f; --p-action: #dafa9c; --p-action-ink: #0f0f0f;
+  --p-inv-bg: #ffffff; --p-inv-surface: #ececec; --p-inv-ink: #0f0f0f; --p-inv-muted: #5f5f5f;
+  --p-inv-accent: #0f0f0f; --p-inv-accent-ink: #ffffff; --p-inv-action: #0f0f0f; --p-inv-action-ink: #ffffff;
+  --font-display: "Host Grotesk", system-ui, sans-serif;
+  --font-text: "Host Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --display-weight: 500;
+  --display-tracking: -0.035em;
+  --display-tracking-xl: -0.04em;
+}
+</style>
+<link rel="stylesheet" href="assets/ui/base.css">
+<script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
+<script src="assets/backgrounds/backgrounds.js"></script>
+<script>document.documentElement.classList.add('mo-js');setTimeout(()=>document.documentElement.classList.add('mo-safe'),2500)</script>
+<link rel="modulepreload" href="assets/moments/moments.js">
+<link rel="modulepreload" href="assets/moments/lib.js">
+<link rel="modulepreload" href="assets/moments/pinned-chapters/moment.js">
+<!-- page CSS: only what sits inside a visual (the drawn dashboard windows, the step pictures, the ranking) -->
+<style>
+  /* the dashboard as a window: the project's own Streamlit screen, drawn in HTML */
+  .d-win { background: #141414; color: #ececec; border-radius: 12px; overflow: hidden; font: 400 14px/1.4 var(--font-text);
+    box-shadow: 0 0 0 1px rgb(255 255 255 / .08), 0 30px 70px -30px rgb(0 0 0 / .8); }
+  .d-win__bar { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border-bottom: 1px solid rgb(255 255 255 / .07); font-size: 13px; color: #a3a3a3; }
+  .d-win__dots { display: flex; gap: 6px; } .d-win__dots i { width: 10px; height: 10px; border-radius: 50%; background: #3a3a3a; }
+  .d-win__body { display: grid; grid-template-columns: 150px 1fr; min-height: 420px; }
+  .d-side { padding: 14px 10px; border-right: 1px solid rgb(255 255 255 / .07); display: grid; align-content: start; gap: 2px; font-size: 13px; color: #b3b3b3; }
+  .d-side > span { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 7px; }
+  .d-side > span.is-on { background: rgb(218 250 156 / .12); color: #dafa9c; font-weight: 500; }
+  .d-side > span i { width: 14px; height: 14px; border-radius: 4px; background: currentColor; opacity: .35; flex: none; }
+  .d-side .d-side__label { font-size: 13px; color: #8f8f8f; height: 26px; margin-top: 8px; }
+  .d-main { padding: 16px 18px; display: grid; align-content: start; gap: 12px; min-width: 0; }
+  .d-main__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .d-main__head h4 { font: 500 16px/1.2 var(--font-text); letter-spacing: -0.01em; margin: 0; color: #fff; }
+  .d-btn { font-size: 13px; height: 28px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 7px; border: 1px solid rgb(255 255 255 / .14); color: #d9d9d9; white-space: nowrap; }
+  .d-rows { display: grid; border-top: 1px solid rgb(255 255 255 / .07); }
+  .d-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) 64px 84px; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid rgb(255 255 255 / .07); font-size: 13px; }
+  .d-thumb { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: #222; color: #cfcfcf; font: 500 12px/1 var(--font-mono); }
+  .d-row b { display: block; font-weight: 500; color: #f2f2f2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .d-row small { color: #8f8f8f; font-size: 13px; }
+  .d-row .num { text-align: right; font-variant-numeric: tabular-nums; color: #f2f2f2; }
+  .d-chip { justify-self: end; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 99px; font-size: 13px; font-weight: 500; background: rgb(218 250 156 / .14); color: #dafa9c; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .d-chip--down { background: rgb(255 255 255 / .08); color: #bdbdbd; }
+  .d-card { background: #1c1c1c; color: #ececec; border-radius: 12px; padding: 14px 16px; font: 400 14px/1.4 var(--font-text);
+    box-shadow: 0 0 0 1px rgb(255 255 255 / .1), 0 20px 40px -20px rgb(0 0 0 / .7); }
+  .d-card h5 { margin: 0 0 4px; font: 500 14px/1.3 var(--font-text); color: #fff; }
+  .d-card__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .d-note__line { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13px; color: #c4c4c4; border-top: 1px solid rgb(255 255 255 / .07); }
+  .d-note__line:first-of-type { border-top: 0; }
+  .d-note__line i { width: 18px; height: 18px; border-radius: 50%; flex: none; display: grid; place-items: center; background: rgb(218 250 156 / .16); color: #dafa9c; font-style: normal; font-size: 12px; font-weight: 600; }
+  .d-note__line b { font-weight: 500; color: #fff; }
+  .hero__art > .ly-piece--note { left: var(--s-6); bottom: var(--s-6); width: 300px; z-index: 2; }
+  .ly-piece--main .d-main { padding-right: var(--ly-cut-room); }
+  @media (max-width: 1023px) { .hero__art > .ly-piece--note { left: var(--s-4); bottom: var(--s-4); width: 270px; } }
+  @media (max-width: 639px) { .d-win__body { grid-template-columns: 1fr; } .d-side { display: none; } .d-row { grid-template-columns: 36px minmax(0, 1fr) 84px; } .d-row .num { display: none; } }
+  .hero__proof { font-size: var(--t-small); color: var(--muted); }
+  /* the art's pause disc sits on the light painting: its ring in the page's ink */
+  .hero__art .ui-pause:focus-visible { outline: 2px solid #0f0f0f; outline-offset: 2px; }
+  /* a narrower frame: the window drops its sidebar, so the cut falls in the margin after the chips */
+  @media (max-width: 1279px) { .ly-piece--main .d-win__body { grid-template-columns: 1fr; } .ly-piece--main .d-side { display: none; } }
+  /* the close's name: Host Grotesk's capitals stand taller than the kit's .86 line */
+  .close__word { line-height: 1.04; }
+  /* 1024 to 1279: the frame's foot falls on the sixth row, so the window shows five */
+  @media (min-width: 1024px) and (max-width: 1279px) { .ly-piece--main .d-row:nth-child(6) { display: none; } }
+
+  /* app-frame (sections-library.md): the province list beside the open forecast */
+  .app.ui { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); margin-top: var(--s-7); background: #141414; border: 1px solid rgb(255 255 255 / .1); border-radius: 16px; color: #ececec; }
+  .app > .app__pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  .app > .app__pane + .app__pane { border-left: 1px solid rgb(255 255 255 / .08); }
+  .app > .app__pane::after { content: ""; position: absolute; inset: auto 0 0 0; height: 64px; background: linear-gradient(transparent, #141414); pointer-events: none; }
+  .ap-head { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 18px; border-bottom: 1px solid rgb(255 255 255 / .08); font-size: 13px; color: #a3a3a3; }
+  .ap-head b { color: #fff; font-weight: 500; }
+  .ap-tabs { display: flex; gap: 4px; padding: 12px 18px 0; }
+  .ap-tabs span { height: 28px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a3a3a3; border: 1px solid rgb(255 255 255 / .1); }
+  .ap-tabs span.is-on { color: #0f0f0f; background: #dafa9c; border-color: #dafa9c; font-weight: 500; }
+  .ap-list { list-style: none; margin: 12px 0 0; padding: 0 18px; }
+  .ap-list li { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 12px; align-items: center; height: 46px; border-bottom: 1px solid rgb(255 255 255 / .07); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .ap-list li span:not(:first-child) { text-align: right; }
+  .ap-list li.is-on { color: #dafa9c; }
+  .ap-list li.ap-cols { height: 32px; font-size: 13px; color: #8f8f8f; }
+  .ap-open { padding: 22px 26px; }
+  .ap-headline { font: 500 22px/1.3 var(--font-display); letter-spacing: -0.02em; color: #fff; margin: 0 0 18px; max-width: 34ch; }
+  .ap-headline b { color: #dafa9c; font-weight: 500; }
+  .ap-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .ap-tile { border: 1px solid rgb(255 255 255 / .1); border-radius: 10px; padding: 10px 12px; }
+  .ap-tile small { display: block; font-size: 13px; color: #8f8f8f; }
+  .ap-tile b { display: block; font: 500 20px/1.3 var(--font-text); color: #fff; font-variant-numeric: tabular-nums; }
+  .ap-tile b.lime { color: #dafa9c; }
+  .chart { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart .grid line { stroke: rgb(255 255 255 / .08); }
+  .chart text { fill: #8f8f8f; font: 400 13px var(--font-text); }
+  .chart .shade { fill: rgb(255 255 255 / .04); }
+  .chart .actual { fill: none; stroke: #f2f2f2; stroke-width: 2.5; stroke-linejoin: round; }
+  .chart .ref { fill: none; stroke: #6b6b6b; stroke-width: 1.5; stroke-dasharray: 2 4; }
+  .chart .alt { fill: none; stroke: #8f8f8f; stroke-width: 1.5; stroke-dasharray: 6 5; }
+  .chart .main { fill: none; stroke: #dafa9c; stroke-width: 3; stroke-linejoin: round; }
+  .chart .band { fill: rgb(218 250 156 / .14); }
+  .chart .dot { fill: #dafa9c; stroke: #141414; stroke-width: 2; }
+  @media (min-width: 1024px) and (max-width: 1279px) { .app.ui { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); } }
+  @media (max-width: 1023px) {
+    .app.ui { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    .app > .app__pane--list { max-height: 270px; }
+    .ap-list li:nth-child(n+5) { display: none; }
+    .app > .app__pane--list::after { display: none; }
+    .app > .app__pane + .app__pane { border-left: 0; border-top: 1px solid rgb(255 255 255 / .08); }
+  }
+  @media (max-width: 639px) {
+    .app.ui { grid-template-rows: minmax(0, 1fr); }
+    .app > .app__pane--list { display: none; }
+    .app > .app__pane + .app__pane { border-top: 0; }
+    .ap-open { padding: 16px; } .ap-headline { font-size: 18px; } .ap-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ap-tiles .ap-tile:last-child { display: none; }
+  }
+
+  /* the step pictures of the method section: drawn windows */
+  .mo-pc__visual { margin: 0; }
+  .st-win { background: #141414; color: #ececec; border: 1px solid rgb(255 255 255 / .1); border-radius: 12px; overflow: hidden; height: 100%; font: 400 14px/1.4 var(--font-text); }
+  .st-win__bar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid rgb(255 255 255 / .07); font-size: 13px; color: #a3a3a3; }
+  .st-win__body { padding: 18px; }
+  .st-table { width: 100%; border-collapse: collapse; font: 400 13px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
+  .st-table th { text-align: right; font: 500 13px var(--font-text); color: #8f8f8f; padding: 8px 6px; border-bottom: 1px solid rgb(255 255 255 / .1); }
+  .st-table td { text-align: right; padding: 9px 6px; border-bottom: 1px solid rgb(255 255 255 / .06); color: #dcdcdc; }
+  .st-table th:first-child, .st-table td:first-child { text-align: left; }
+  .st-table td.new { color: #dafa9c; }
+  .st-score { display: grid; grid-template-columns: minmax(0, 1.4fr) 1fr 1fr; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .st-score > span { padding: 12px 6px; border-bottom: 1px solid rgb(255 255 255 / .07); text-align: right; }
+  .st-score > span:nth-child(3n+1) { text-align: left; color: #dcdcdc; }
+  .st-score > .h { font-size: 13px; color: #8f8f8f; }
+  .st-score > .win { color: #dafa9c; font-weight: 500; }
+  .st-score > .lose { color: #7a7a7a; }
+  /* the tablet: the moment's static rows keep the section at its two screens */
+  @media (min-width: 640px) and (max-width: 1023px) { main > #method[data-moment="pinned-chapters"]:not(.is-live) { min-height: calc(2 * 100svh); } }
+  /* a phone: the moment's static stack keeps the section at its two screens (--hm: 2) */
+  @media (max-width: 639px) { main > #method[data-moment="pinned-chapters"]:not(.is-live) { min-height: calc(2 * 100lvh); } }
+  @media (max-width: 639px) { .st-table tr:nth-child(n+2):nth-child(-n+6) { display: none; } .st-win__body { padding: 12px; } .st-table th, .st-table td { padding: 6px 4px; } }
+
+  /* the ranking on the inverse band: one bar per province */
+  .rank { list-style: none; margin: 0; padding: 40px 32px; display: grid; gap: 12px; align-content: center; width: 100%; height: 100%; }
+  .rank li { display: grid; grid-template-columns: 168px minmax(0, 1fr); align-items: center; gap: 14px; font-size: 14px; color: #262626; }
+  .rank .bar { display: block; position: relative; height: 24px; }
+  .rank .bar i { position: absolute; top: 0; bottom: 0; left: 18%; border-radius: 3px; background: #c9c9c9; }
+  .rank .bar i.neg { left: auto; right: 82%; }
+  .rank .bar span { position: absolute; top: 50%; transform: translateY(-50%); font: 500 13px var(--font-mono); color: #4a4a4a; white-space: nowrap; }
+  .rank li.is-on { color: #0f0f0f; font-weight: 500; }
+  .rank li.is-on .bar i { background: #0f0f0f; }
+  .rank .axis { position: absolute; left: 18%; top: -4px; bottom: -4px; width: 1px; background: #8a8a8a; }
+  .tools { display: flex; flex-wrap: wrap; gap: 12px; }
+  @media (max-width: 639px) { .tools-line, .faq__item--desk { display: none; } }
+  @media (max-width: 639px) { .rank-note { display: none; } .rank .bar { height: 18px; } .rank { padding: 12px 16px; gap: 4px; } .rank li { grid-template-columns: 112px minmax(0, 1fr); font-size: 13px; } }
+</style>
+</head>
+<body>
+<!-- type: software (an open-source forecasting dashboard)
+     deal: hero collage, nav nav-centre (dealt nav-cards: no photographs for its picture cards, re-dealt), close close-word,
+     footer footer-dark, rhythm dark-band, buttons arrow, mark dots; palette soot-pale-lime, type host, radius soft;
+     ground painting (dealt sage; painterly-landscape is drawn on the painting ground); effect painterly-landscape in the hero art
+     moments: pinned-chapters in #method
+     plan: hero (1) · forecasts app-frame (1) · method pinned-chapters (2) · compare split on the inverse band (1) · questions faq (1) · footer.closing (1) -->
+<header class="nav nav--centre">
+  <div class="wrap nav__bar">
+    <a class="skip-link" href="#top">Skip to content</a>
+    <a class="nav__logo" href="#top"><span class="mark" data-mark="dots" aria-hidden="true"></span>Canada Forecaster</a>
+    <nav class="nav__links" aria-label="Main">
+      <div class="nav__item"><a class="nav__link" href="#forecasts">Forecasts</a></div>
+      <div class="nav__item"><a class="nav__link" href="#method">Method</a></div>
+      <div class="nav__item"><a class="nav__link" href="#compare">Provinces</a></div>
+      <div class="nav__item"><a class="nav__link" href="#questions">Questions</a></div>
+    </nav>
+    <div class="nav__actions">
+      <a class="btn btn--primary" href="https://github.com/MBM-M/canada-forecaster">Get the code</a>
+    </div>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-label="Menu">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h14M2 13h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero hero--collage" data-enter aria-labelledby="hero-h">
+    <div class="wrap"><div class="hero-text grid hero__grid">
+      <div class="hero__text span-5">
+        <h1 id="hero-h">Wage, shelter and job forecasts for Canada</h1>
+        <p class="hero__lead">Two models trained on Statistics Canada data from 2014 to 2024 project wages and shelter costs for 10 provinces, and jobs in 28 industries, to 2027.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="https://github.com/MBM-M/canada-forecaster">Get the code<svg class="m-arrow" viewBox="0 0 12 12" aria-hidden="true"><path class="m-arrow__stem" d="M1 6h8"/><path class="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5"/></svg></a><a class="btn btn--secondary" href="#forecasts">See the forecasts</a></div>
+        <p class="hero__proof">Python 3.9 or newer, scikit-learn and Streamlit, on your own machine.</p>
+      </div>
+      <div class="hero__art span-6 start-7" data-fx="painterly-landscape" data-fx-seed="14" role="img" aria-label="The forecaster's wage table for six provinces, with Saskatchewan projected to reach $37.57 an hour by 2027">
+        <div class="ly-piece ly-piece--main d-win" aria-hidden="true">
+          <div class="d-win__bar"><span class="d-win__dots"><i></i><i></i><i></i></span><span>Canada Forecaster · Wages</span></div>
+          <div class="d-win__body">
+            <div class="d-side">
+              <span class="is-on"><i></i>Wages</span><span><i></i>Shelter costs</span><span><i></i>Employment</span>
+              <span class="d-side__label">Forecast to</span><span><i></i>2025</span><span><i></i>2026</span><span class="is-on"><i></i>2027</span>
+            </div>
+            <div class="d-main">
+              <div class="d-main__head"><h4>Hourly wage by 2027</h4><span class="d-btn">Linear regression</span></div>
+              <div class="d-rows">
+                <div class="d-row"><span class="d-thumb">NL</span><div><b>Newfoundland and Labrador</b><small>$32.48 in 2024</small></div><span class="num">$37.79</span><span class="d-chip">+16.4%</span></div>
+                <div class="d-row"><span class="d-thumb">SK</span><div><b>Saskatchewan</b><small>$32.58 in 2024</small></div><span class="num">$37.57</span><span class="d-chip">+15.3%</span></div>
+                <div class="d-row"><span class="d-thumb">NB</span><div><b>New Brunswick</b><small>$30.31 in 2024</small></div><span class="num">$34.02</span><span class="d-chip">+12.3%</span></div>
+                <div class="d-row"><span class="d-thumb">QC</span><div><b>Quebec</b><small>$33.84 in 2024</small></div><span class="num">$36.81</span><span class="d-chip">+8.8%</span></div>
+                <div class="d-row"><span class="d-thumb">ON</span><div><b>Ontario</b><small>$36.44 in 2024</small></div><span class="num">$36.06</span><span class="d-chip d-chip--down">−1.1%</span></div>
+                <div class="d-row"><span class="d-thumb">BC</span><div><b>British Columbia</b><small>$36.65 in 2024</small></div><span class="num">$36.05</span><span class="d-chip d-chip--down">−1.6%</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ly-piece ly-piece--note d-card" aria-hidden="true" data-ly-steps="700">
+          <div class="d-card__row"><h5>Saskatchewan wages</h5><span class="d-chip" data-step data-step-at="4">2027</span></div>
+          <div class="d-note__line" data-step><i>1</i><span><b>$32.58</b> an hour in 2024</span></div>
+          <div class="d-note__line" data-step><i>2</i><span>Linear model, <b>±$0.06</b> on 2022–24</span></div>
+          <div class="d-note__line" data-step><i>3</i><span>Projected <b>$37.57</b> by 2027</span></div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="section" id="forecasts" aria-labelledby="forecasts-h">
+    <div class="wrap">
+      <div class="grid">
+        <h2 id="forecasts-h" class="span-5">Every province's forecast in one dashboard</h2>
+        <p class="span-6 start-7">Pick wages, shelter costs or employment, then a province or industry. The headline, the chart and the error on 2022 to 2024 update together. <a class="link" href="#method">See how it is made</a></p>
+      </div>
+      <div class="ui app fill" role="img" aria-label="The dashboard: a list of provinces with 2024 and 2027 wages, beside Saskatchewan's wage chart from 2014 to 2027">
+        <div class="app__pane app__pane--list" aria-hidden="true">
+          <div class="ap-head"><span class="d-win__dots"><i></i><i></i><i></i></span><b>Canada Forecaster</b></div>
+          <div class="ap-tabs"><span class="is-on">Wages</span><span>Shelter costs</span><span>Employment</span></div>
+          <ul class="ap-list">
+            <li class="ap-cols"><span>Province</span><span>2024</span><span>2027</span></li>
+            <li><span>Newfoundland and Labrador</span><span>$32.48</span><span>$37.79</span></li>
+            <li class="is-on"><span>Saskatchewan</span><span>$32.58</span><span>$37.57</span></li>
+            <li><span>New Brunswick</span><span>$30.31</span><span>$34.02</span></li>
+            <li><span>Manitoba</span><span>$30.39</span><span>$34.05</span></li>
+            <li><span>Nova Scotia</span><span>$30.79</span><span>$34.43</span></li>
+            <li><span>Quebec</span><span>$33.84</span><span>$36.81</span></li>
+            <li><span>Prince Edward Island</span><span>$29.56</span><span>$31.87</span></li>
+            <li><span>Alberta</span><span>$36.38</span><span>$36.17</span></li>
+            <li><span>Ontario</span><span>$36.44</span><span>$36.06</span></li>
+            <li><span>British Columbia</span><span>$36.65</span><span>$36.05</span></li>
+          </ul>
+        </div>
+        <div class="app__pane app__pane--open" aria-hidden="true">
+          <div class="ap-open">
+            <p class="ap-headline">Saskatchewan wages are projected to reach <b>$37.57</b> by 2027, up 15.3% from 2024.</p>
+            <div class="ap-tiles">
+              <div class="ap-tile"><small>Actual 2024</small><b>$32.58</b></div>
+              <div class="ap-tile"><small>Projected 2027</small><b class="lime">$37.57</b></div>
+              <div class="ap-tile"><small>Typical error</small><b>± $0.06</b></div>
+            </div>
+            <svg class="chart" viewBox="0 0 640 280">
+              <rect class="shade" x="512" y="0" width="136" height="260"/>
+              <g class="grid"><line x1="0" x2="640" y1="221.5" y2="221.5"/><line x1="0" x2="640" y1="160.5" y2="160.5"/><line x1="0" x2="640" y1="99.5" y2="99.5"/><line x1="0" x2="640" y1="38.5" y2="38.5"/></g>
+              <path class="band" d="M488.0 121.2 L536.0 61.1 L584.0 60.7 L632.0 60.7 L632.0 107.4 L584.0 88.7 L536.0 110.9 L488.0 121.2 Z"/>
+              <path class="ref" d="M8.0 234.0 L56.0 223.5 L104.0 215.4 L152.0 209.1 L200.0 197.7 L248.0 186.1 L296.0 159.9 L344.0 150.0 L392.0 130.5 L440.0 106.2 L488.0 81.2"/>
+              <path class="actual" d="M8.0 220.6 L56.0 213.1 L104.0 202.3 L152.0 201.2 L200.0 192.5 L248.0 189.2 L296.0 166.4 L344.0 165.4 L392.0 152.7 L440.0 136.7 L488.0 121.2"/>
+              <path class="alt" d="M488.0 121.2 L536.0 89.6 L584.0 68.0 L632.0 70.7"/>
+              <path class="main" d="M488.0 121.2 L536.0 103.4 L584.0 57.5 L632.0 45.1"/>
+              <circle class="dot" cx="536" cy="103.4" r="5"/><circle class="dot" cx="584" cy="57.5" r="5"/><circle class="dot" cx="632" cy="45.1" r="5"/>
+              <text x="8" y="278">2014</text><text x="280" y="278">2020</text><text x="470" y="278">2024</text><text x="604" y="278">2027</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="method" style="--h: 2; --hm: 2" data-moment="pinned-chapters" aria-labelledby="method-h">
+    <div class="wrap mo-pc__grid">
+      <div class="mo-pc__text">
+        <h2 id="method-h">How each forecast is made</h2>
+        <ol class="mo-pc__steps">
+          <li class="mo-pc__step">
+            <h3>Reads 11 years of Statistics Canada tables</h3>
+            <p>Hourly wages, shelter and all-items CPI by province, and employment by industry, 2014 to 2024. Last year's value and yearly growth become inputs.</p>
+            <figure class="mo-pc__visual" role="img" aria-label="Saskatchewan's rows from 2020 to 2024: hourly wage, shelter CPI and all-items CPI">
+              <div class="st-win" aria-hidden="true">
+                <div class="st-win__bar"><span class="d-win__dots"><i></i><i></i><i></i></span>wages_vs_cpi.csv · Saskatchewan, 2015–2024</div>
+                <div class="st-win__body">
+                  <table class="st-table">
+                    <tr><th>Year</th><th>Wage</th><th>Shelter CPI</th><th>All items</th><th>Wage, t−1</th></tr>
+                    <tr><td>2015</td><td>$26.55</td><td>158.7</td><td>130.8</td><td class="new">$26.06</td></tr>
+                    <tr><td>2016</td><td>$27.26</td><td>160.5</td><td>132.2</td><td class="new">$26.55</td></tr>
+                    <tr><td>2017</td><td>$27.33</td><td>163.5</td><td>134.4</td><td class="new">$27.26</td></tr>
+                    <tr><td>2018</td><td>$27.90</td><td>167.4</td><td>137.5</td><td class="new">$27.33</td></tr>
+                    <tr><td>2019</td><td>$28.12</td><td>170.4</td><td>139.9</td><td class="new">$27.90</td></tr>
+                    <tr><td>2020</td><td>$29.61</td><td>171.9</td><td>140.7</td><td class="new">$28.12</td></tr>
+                    <tr><td>2021</td><td>$29.68</td><td>173.2</td><td>144.4</td><td class="new">$29.61</td></tr>
+                    <tr><td>2022</td><td>$30.51</td><td>182.2</td><td>153.9</td><td class="new">$29.68</td></tr>
+                    <tr><td>2023</td><td>$31.56</td><td>193.6</td><td>160.0</td><td class="new">$30.51</td></tr>
+                    <tr><td>2024</td><td>$32.58</td><td>200.8</td><td>162.3</td><td class="new">$31.56</td></tr>
+                  </table>
+                </div>
+              </div>
+            </figure>
+          </li>
+          <li class="mo-pc__step">
+            <h3>Scores both models on 2022 to 2024</h3>
+            <p>A linear regression and a 200-tree random forest learn from the years before 2022, then predict three years they never saw.</p>
+            <figure class="mo-pc__visual" role="img" aria-label="Mean absolute error on 2022 to 2024: linear regression wins for wages, shelter costs and employment">
+              <div class="st-win" aria-hidden="true">
+                <div class="st-win__bar"><span class="d-win__dots"><i></i><i></i><i></i></span>Mean absolute error, 2022–2024</div>
+                <div class="st-win__body">
+                  <div class="st-score">
+                    <span class="h">Indicator</span><span class="h">Linear</span><span class="h">Random forest</span>
+                    <span>Wages ($/hr)</span><span class="win">0.06</span><span class="lose">1.13</span>
+                    <span>Shelter index</span><span class="win">0.65</span><span class="lose">11.95</span>
+                    <span>Jobs (thousands)</span><span class="win">112.4</span><span class="lose">155.5</span>
+                  </div>
+                </div>
+              </div>
+            </figure>
+          </li>
+          <li class="mo-pc__step">
+            <h3>Rolls the better model forward to 2027</h3>
+            <p>Each projected year feeds the next. The random forest adds a 90% range from the spread of its trees.</p>
+            <figure class="mo-pc__visual" role="img" aria-label="Total employment in Canada from 2014 to 2024, projected by linear regression to 2027">
+              <div class="st-win" aria-hidden="true">
+                <div class="st-win__bar"><span class="d-win__dots"><i></i><i></i><i></i></span>Total employment · thousands</div>
+                <div class="st-win__body">
+                  <svg class="chart" viewBox="0 0 560 320">
+                    <rect class="shade" x="447.4" y="0" width="118" height="300"/>
+                    <g class="grid"><line x1="0" x2="560" y1="235.2" y2="235.2"/><line x1="0" x2="560" y1="178.4" y2="178.4"/><line x1="0" x2="560" y1="121.6" y2="121.6"/><line x1="0" x2="560" y1="64.8" y2="64.8"/></g>
+                    <path class="actual" d="M8.0 250.1 L49.8 243.3 L91.7 237.1 L133.5 214.1 L175.4 195.1 L217.2 174.4 L259.1 231.3 L300.9 180.4 L342.8 136.4 L384.6 102.6 L426.5 80.1"/>
+                    <path class="main" d="M426.5 80.1 L468.3 53.5 L510.2 93.8 L552.0 106.4"/>
+                    <circle class="dot" cx="468.3" cy="53.5" r="5"/><circle class="dot" cx="510.2" cy="93.8" r="5"/><circle class="dot" cx="552" cy="106.4" r="5"/>
+                    <text x="8" y="318">2014</text><text x="240" y="318">2020</text><text x="408" y="318">2024</text><text x="522" y="318">2027</text>
+                  </svg>
+                </div>
+              </div>
+            </figure>
+          </li>
+        </ol>
+      </div>
+      <div class="mo-pc__visuals frame"></div>
+    </div>
+  </section>
+
+  <section class="section ground-inverse" id="compare" aria-labelledby="compare-h">
+    <div class="wrap">
+      <div class="grid">
+        <div class="span-5 stack-4">
+          <h2 id="compare-h">Ranks all 10 provinces by projected change</h2>
+          <p class="t-lead">The comparison chart sorts every province or industry by projected change. Click a bar and the whole dashboard switches to it.</p>
+          <p>Wages to 2027: Newfoundland and Labrador leads at +16.4%. British Columbia trails at −1.6%.</p>
+          <p class="muted rank-note">Industry rankings leave out sector totals and overlapping groups.</p>
+        </div>
+        <div class="frame frame--split span-6 start-7" data-visual role="img" aria-label="Projected change in hourly wages from 2024 to 2027 for the ten provinces, Saskatchewan highlighted at plus 15.3 percent">
+          <ul class="rank" aria-hidden="true">
+            <li><span>Newfoundland and Labrador</span><span class="bar"><span class="axis"></span><i style="width:65.5%"></i><span style="left:calc(18% + 65.5% + 6px)">+16.4%</span></span></li>
+            <li class="is-on"><span>Saskatchewan</span><span class="bar"><span class="axis"></span><i style="width:61.2%"></i><span style="left:calc(18% + 61.2% + 6px)">+15.3%</span></span></li>
+            <li><span>New Brunswick</span><span class="bar"><span class="axis"></span><i style="width:49%"></i><span style="left:calc(18% + 49% + 6px)">+12.3%</span></span></li>
+            <li><span>Manitoba</span><span class="bar"><span class="axis"></span><i style="width:48.2%"></i><span style="left:calc(18% + 48.2% + 6px)">+12.0%</span></span></li>
+            <li><span>Nova Scotia</span><span class="bar"><span class="axis"></span><i style="width:47.3%"></i><span style="left:calc(18% + 47.3% + 6px)">+11.8%</span></span></li>
+            <li><span>Quebec</span><span class="bar"><span class="axis"></span><i style="width:35.1%"></i><span style="left:calc(18% + 35.1% + 6px)">+8.8%</span></span></li>
+            <li><span>Prince Edward Island</span><span class="bar"><span class="axis"></span><i style="width:31.2%"></i><span style="left:calc(18% + 31.2% + 6px)">+7.8%</span></span></li>
+            <li><span>Alberta</span><span class="bar"><span class="axis"></span><i class="neg" style="width:2.3%"></i><span style="left:calc(18% + 6px)">−0.6%</span></span></li>
+            <li><span>Ontario</span><span class="bar"><span class="axis"></span><i class="neg" style="width:4.2%"></i><span style="left:calc(18% + 6px)">−1.1%</span></span></li>
+            <li><span>British Columbia</span><span class="bar"><span class="axis"></span><i class="neg" style="width:6.5%"></i><span style="left:calc(18% + 6px)">−1.6%</span></span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="questions" aria-labelledby="questions-h">
+    <div class="wrap">
+      <div class="grid grid--top">
+        <div class="span-5 stack-4">
+          <h2 id="questions-h">Questions</h2>
+          <p class="tools-line">Built with Python 3.9 or newer, pandas, scikit-learn, Plotly and Streamlit.</p>
+          <div class="tools">
+            <span class="ic-tile ic-tile--56"><img class="ic ic-32" loading="lazy" src="assets/icons/python.svg" alt="Python" width="32" height="32"></span>
+            <span class="ic-tile ic-tile--56"><img class="ic ic-32 ic-tall" loading="lazy" src="assets/icons/pandas-icon.svg" alt="pandas" width="20" height="32"></span>
+            <span class="ic-tile ic-tile--56"><img class="ic ic-32 ic-land" loading="lazy" src="assets/icons/scikitlearn.svg" alt="scikit-learn" width="32" height="18"></span>
+            <span class="ic-tile ic-tile--56"><img class="ic ic-32" loading="lazy" src="assets/icons/plotly.svg" alt="Plotly" width="32" height="32"></span>
+            <span class="ic-tile ic-tile--56 ic-tile--wide"><img class="ic ic-32 ic-wide" loading="lazy" src="assets/icons/streamlit.svg" alt="Streamlit" width="32" height="18"></span>
+          </div>
+        </div>
+        <div class="faq span-6 start-7">
+          <div class="faq__item"><h3>Is this an official Statistics Canada forecast?</h3><p>No. It is an independent model built on Statistics Canada open data. The figures are projections, not official estimates.</p></div>
+          <div class="faq__item"><h3>Which forecast does the dashboard show first?</h3><p>The one with the lower error on 2022 to 2024. Linear regression won for all three indicators, so it leads; the random forest is one click away.</p></div>
+          <div class="faq__item"><h3>Why do the random forest forecasts flatten out?</h3><p>Trees cannot predict values outside the range they trained on, so a series that keeps rising levels off.</p></div>
+          <div class="faq__item faq__item--desk"><h3>Can I rerun the forecasts on new data?</h3><p>Yes. Replace the two CSV files in data/ and run python src/train_models.py. It takes about 30 seconds.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer closing footer--dark ground-inverse g2m" id="contact" aria-labelledby="close-h">
+  <div class="wrap">
+    <div class="closing__cta close--word">
+      <div class="section-head--split">
+        <div><h2 id="close-h">Run the forecaster yourself</h2><p class="t-lead">Clone the repository, install the packages and start Streamlit.</p></div>
+        <a class="btn btn--primary" href="https://github.com/MBM-M/canada-forecaster">Get the code<svg class="m-arrow" viewBox="0 0 12 12" aria-hidden="true"><path class="m-arrow__stem" d="M1 6h8"/><path class="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5"/></svg></a>
+      </div>
+      <p class="close__word" aria-hidden="true">Forecaster</p>
+    </div>
+    <div class="closing__links">
+      <div class="grid">
+        <div class="span-4 stack-4">
+          <a class="nav__logo" href="#top"><span class="mark" data-mark="dots" aria-hidden="true"></span>Canada Forecaster</a>
+          <p class="footer__lede">Wage, shelter and job forecasts from Statistics Canada open data.</p>
+        </div>
+        <div class="span-2 footer__col"><h3>Dashboard</h3><ul><li><a href="#forecasts">Forecasts</a></li><li><a href="#compare">Provinces</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Method</h3><ul><li><a href="#method">How it works</a></li><li><a href="#questions">Questions</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Data</h3><ul><li><a href="https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1410002301">Table 14-10-0023-01</a></li><li><a href="https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000501">Table 18-10-0005-01</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Code</h3><ul><li><a href="https://github.com/MBM-M/canada-forecaster#readme">README</a></li><li><a href="https://github.com/MBM-M/canada-forecaster/issues">Issues</a></li></ul></div>
+      </div>
+      <div class="footer__legal">
+        <span>&copy; 2026 Canada Forecaster &nbsp; Product names and logos are trademarks of their owners.</span>
+        <div class="socials"></div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<nav class="actionbar" aria-label="Quick actions">
+  <a class="btn btn--primary" href="https://github.com/MBM-M/canada-forecaster">Get the code</a>
+</nav>
+
+<script type="module" src="assets/system.js"></script>
+<script type="module" src="assets/motion/motion.js"></script>
+<script type="module" src="assets/layout/layout.js"></script>
+</body>
+</html>
