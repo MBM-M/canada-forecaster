@@ -1,631 +1,730 @@
-import os
-import sys
+"""Canada Forecaster: Streamlit dashboard.
+
+Forecasts Canadian wages, shelter costs and employment (2025–2027) from
+Statistics Canada open data, comparing a linear baseline with a random forest.
+"""
+
 import json
-import numpy as np
+import os
+import re
+import sys
+
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import streamlit as st
 
-# ── Path setup ────────────────────────────────────────────────────────────────
+# ── Paths ─────────────────────────────────────────────────────────────────────
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT, "data")
 MODELS_DIR = os.path.join(ROOT, "models")
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Canada Economic Forecaster",
-    page_icon="📈",
+    page_title="Canada Forecaster",
+    page_icon="🍁",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ── CSS (same dark theme as the StatCan dashboard) ────────────────────────────
-st.markdown("""
+# ── Design tokens (soot and pale lime, shared with the landing page in site/) ──
+BG = "#0F0F0F"
+SURFACE = "#1A1A1A"
+INK = "#FFFFFF"
+MUTED = "#8F8F8F"
+SUBTLE = "#5F5F5F"
+GRID = "#262626"
+LINE = "#2A2A2A"
+ACCENT = "#DAFA9C"
+ACCENT_INK = "#0F0F0F"
+ACCENT_SOFT = "rgba(218, 250, 156, 0.14)"
+NEUTRAL_BAR = "#333333"
+ALT_MODEL = "#8F8F8F"
+FONT = "'Host Grotesk', system-ui, sans-serif"
+MONO = "'JetBrains Mono', ui-monospace, monospace"
+REPO = "https://github.com/MBM-M/canada-forecaster"
+
+st.markdown(
+    f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
-.stApp { background-color: #0e1117; color: #e8e8e8; }
-[data-testid="stSidebar"] { background-color: #161b27; border-right: 1px solid #2a2f3e; }
-[data-testid="stMetric"] {
-    background: linear-gradient(135deg, #1a2035 0%, #1e2640 100%);
-    border: 1px solid #2a3555; border-radius: 12px; padding: 16px 20px;
-}
-[data-testid="stMetricLabel"] {
-    font-size: 0.75rem !important; letter-spacing: 0.08em;
-    text-transform: uppercase; color: #7a8aaa !important;
-}
-[data-testid="stMetricValue"] {
-    font-family: 'Syne', sans-serif !important;
-    font-size: 1.8rem !important; color: #e8e8e8 !important;
-}
-[data-testid="stMetricDelta"] svg { display: none; }
-.header-banner {
-    background: linear-gradient(135deg, #0d1b3e 0%, #1a2d5a 50%, #0d2240 100%);
-    border: 1px solid #2a4080; border-radius: 16px;
-    padding: 2.5rem 3rem; margin-bottom: 2rem; position: relative; overflow: hidden;
-}
-.header-banner::before {
-    content: ''; position: absolute; top: -50%; right: -10%;
-    width: 400px; height: 400px;
-    background: radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%);
-    pointer-events: none;
-}
-.header-title {
-    font-family: 'Syne', sans-serif; font-size: 3.6rem; font-weight: 800;
-    color: #ffffff; margin: 0 0 0.4rem 0; letter-spacing: -0.02em; line-height: 1.1;
-}
-.header-subtitle {
-    font-family: 'Inter', sans-serif; font-size: 1rem;
-    color: #7a9acc; font-weight: 300; margin: 0;
-}
-.header-badge {
-    display: inline-block; background: rgba(59,130,246,0.15);
-    border: 1px solid rgba(59,130,246,0.3); color: #60a5fa;
-    font-size: 0.7rem; font-weight: 500; letter-spacing: 0.1em;
-    text-transform: uppercase; padding: 4px 12px; border-radius: 20px; margin-bottom: 1rem;
-}
-.section-header {
-    font-family: 'Syne', sans-serif; font-size: 1.3rem; font-weight: 700;
-    color: #e8e8e8; border-left: 3px solid #3b82f6;
-    padding-left: 0.75rem; margin: 1.5rem 0 1rem 0;
-}
-.metric-card {
-    background: linear-gradient(135deg, #1a2035 0%, #1c2438 100%);
-    border: 1px solid #2a3555; border-radius: 10px;
-    padding: 1rem 1.25rem; margin-bottom: 0.75rem;
-}
-.custom-divider {
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #2a3555, transparent);
-    margin: 1.5rem 0;
-}
-.footer {
-    font-size: 0.75rem; color: #4a5568; text-align: center;
-    padding: 2rem 0 1rem 0; border-top: 1px solid #1e2535; margin-top: 3rem;
-}
-.setup-box {
-    background: linear-gradient(135deg, #1a2035, #1e2640);
-    border: 1px solid #3b82f6; border-radius: 12px; padding: 2rem;
-    margin: 2rem 0;
-}
-</style>
-""", unsafe_allow_html=True)
+:root {{ --ease: cubic-bezier(.2, .7, .2, 1); }}
+[data-testid="stMainBlockContainer"], .block-container {{
+    max-width: 1180px;
+    padding-top: 1.5rem;
+    padding-bottom: 3rem;
+}}
+[data-testid="stHeader"] {{ background: transparent; }}
 
-# ── Plotly base layout ─────────────────────────────────────────────────────────
-LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Inter", color="#c8d4e8"),
-    xaxis=dict(gridcolor="#1e2535", linecolor="#2a3555", tickcolor="#2a3555"),
-    yaxis=dict(gridcolor="#1e2535", linecolor="#2a3555", tickcolor="#2a3555"),
-    legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#2a3555", borderwidth=1,
-                orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
-    margin=dict(l=20, r=20, t=50, b=60),
+.brand {{
+    display: flex; align-items: center; gap: 0.6rem;
+    font-weight: 500; font-size: 1.02rem; color: {INK}; letter-spacing: -0.01em;
+}}
+.brand .mark {{ display: inline-grid; grid-template-columns: repeat(2, 7px); gap: 3px; }}
+.brand .mark i {{ width: 7px; height: 7px; border-radius: 2.5px; background: {ACCENT}; }}
+.stMarkdown .masthead-title {{
+    font-family: {FONT}; font-weight: 500;
+    font-size: clamp(2.2rem, 4.4vw, 3.4rem); line-height: 1.02; letter-spacing: -0.04em;
+    color: {INK}; margin: 2.2rem 0 0 0; max-width: 820px; padding: 0;
+}}
+.stMarkdown .masthead-lede {{
+    color: {MUTED}; font-size: 1.05rem; line-height: 1.5; margin: 0.9rem 0 0 0; max-width: 620px;
+}}
+
+.stMarkdown .headline {{
+    font-family: {FONT}; font-weight: 500;
+    font-size: 1.75rem; line-height: 1.22; letter-spacing: -0.025em;
+    color: {INK}; margin: 0.4rem 0 1.2rem 0; max-width: 900px;
+}}
+.stMarkdown .headline b {{ color: {ACCENT}; font-weight: 500; }}
+
+.tiles {{
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem; margin-bottom: 0.5rem;
+}}
+@media (max-width: 900px) {{ .tiles {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
+.tile {{
+    background: {SURFACE}; border: 1px solid {LINE}; border-radius: 0.75rem;
+    padding: 1rem 1.1rem;
+    transition: transform .25s var(--ease), border-color .25s var(--ease);
+}}
+.tile:hover {{ transform: translateY(-2px); border-color: #3D3D3D; }}
+.tile-label {{ font-family: {MONO}; font-size: 0.72rem; color: {MUTED}; letter-spacing: 0.01em; }}
+.tile-value {{
+    font-size: 1.7rem; font-weight: 500; color: {INK}; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; margin-top: 0.35rem; line-height: 1.15;
+}}
+.tile-value.compact {{ font-size: 1.3rem; padding-top: 0.3rem; }}
+.tile-note {{ font-size: 0.8rem; color: {MUTED}; margin-top: 0.2rem; }}
+.tile.accent {{ background: {ACCENT}; border-color: {ACCENT}; }}
+.tile.accent:hover {{ border-color: {ACCENT}; }}
+.tile.accent .tile-label, .tile.accent .tile-note {{ color: rgba(15, 15, 15, 0.7); }}
+.tile.accent .tile-value {{ color: {ACCENT_INK}; }}
+
+.stMarkdown .section-title {{
+    font-family: {FONT}; font-weight: 500; letter-spacing: -0.03em;
+    font-size: 1.6rem; color: {INK}; margin: 0;
+}}
+.stMarkdown .section-sub {{ color: {MUTED}; font-size: 0.92rem; margin: 0.3rem 0 0.8rem 0; max-width: 760px; }}
+.rule {{ height: 1px; background: {GRID}; margin: 2.75rem 0 2rem 0; }}
+
+.scorecard {{ width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }}
+.scorecard th, .scorecard td {{
+    padding: 0.6rem 0.4rem; border-bottom: 1px solid {GRID}; text-align: right;
+}}
+.scorecard th {{ font-family: {MONO}; font-size: 0.72rem; font-weight: 400; color: {MUTED}; }}
+.scorecard td {{ font-family: {MONO}; font-size: 0.88rem; }}
+.scorecard th:first-child, .scorecard td:first-child {{ text-align: left; font-family: {FONT}; font-size: 0.92rem; }}
+.scorecard td.best {{ color: {ACCENT}; }}
+.scorecard td.worse {{ color: {MUTED}; }}
+.stMarkdown .verdict {{ font-size: 0.95rem; color: {INK}; line-height: 1.55; margin-top: 1rem; }}
+
+/* quiet motion: lift on hover, settle on press */
+.stButton button, .stDownloadButton button, [data-testid="stPopover"] button {{
+    transition: transform .2s var(--ease), background-color .2s var(--ease),
+                border-color .2s var(--ease), color .2s var(--ease);
+}}
+.stButton button:hover, .stDownloadButton button:hover, [data-testid="stPopover"] button:hover {{
+    transform: translateY(-1px);
+}}
+.stButton button:active, .stDownloadButton button:active, [data-testid="stPopover"] button:active {{
+    transform: translateY(0) scale(0.98);
+}}
+[data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primary"] p {{ color: {ACCENT_INK} !important; }}
+@media (prefers-reduced-motion: reduce) {{
+    .tile, .stButton button, .stDownloadButton button, [data-testid="stPopover"] button {{ transition: none; }}
+    .tile:hover, .stButton button:hover, .stDownloadButton button:hover,
+    [data-testid="stPopover"] button:hover {{ transform: none; }}
+}}
+
+.footer {{
+    color: {MUTED}; font-size: 0.82rem; line-height: 1.7;
+    border-top: 1px solid {GRID}; padding-top: 1.4rem; margin-top: 3rem;
+}}
+.footer a {{ color: {INK}; text-decoration-color: {SUBTLE}; text-underline-offset: 3px; }}
+.footer a:hover {{ color: {ACCENT}; text-decoration-color: {ACCENT}; }}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-COLORS = {
-    "historical": "#3b82f6",
-    "lr": "#f59e0b",
-    "rf": "#22c55e",
-    "band": "rgba(34,197,94,0.15)",
-    "band_line": "rgba(34,197,94,0.4)",
+# ── Target definitions ────────────────────────────────────────────────────────
+TARGETS = {
+    "wages": dict(
+        label="Wages",
+        group_col="geo",
+        group_label="Province",
+        hist_key="hist_wages",
+        hist_col="avg_hourly_wage",
+        axis_title="Average hourly wage ($)",
+        subject="{g} wages are",
+        fmt=lambda v: f"${v:,.2f}",
+        hover=":$.2f",
+        tickprefix="$",
+    ),
+    "shelter": dict(
+        label="Shelter costs",
+        group_col="geo",
+        group_label="Province",
+        hist_key="hist_wages",
+        hist_col="shelter_index",
+        axis_title="Shelter price index (2014 = 100)",
+        subject="{g} shelter costs are",
+        prefix="an index of ",
+        fmt=lambda v: f"{v:,.1f}",
+        hover=":.1f",
+    ),
+    "employment": dict(
+        label="Employment",
+        group_col="industry",
+        group_label="Industry",
+        hist_key="hist_emp",
+        hist_col="avg_employed_thousands",
+        axis_title="Employed (thousands)",
+        subject="Employment in {g} is",
+        fmt=lambda v: f"{v:,.0f}k",
+        hover=":,.0f",
+        ticksuffix="k",
+        tickformat=",.0f",
+    ),
 }
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _check_ready() -> bool:
-    needed = [
-        "forecasts_wages.csv", "forecasts_shelter.csv", "forecasts_employment.csv",
-        "importance_wages.csv", "importance_shelter.csv", "importance_employment.csv",
-    ]
-    return all(os.path.exists(os.path.join(DATA_DIR, f)) for f in needed)
-
-
-@st.cache_data
-def load_all():
-    hist_wages = pd.read_csv(os.path.join(DATA_DIR, "wages_vs_cpi.csv"))
-    hist_emp = pd.read_csv(os.path.join(DATA_DIR, "employment_annual.csv"))
-
-    fc_wages = pd.read_csv(os.path.join(DATA_DIR, "forecasts_wages.csv"))
-    fc_shelter = pd.read_csv(os.path.join(DATA_DIR, "forecasts_shelter.csv"))
-    fc_emp = pd.read_csv(os.path.join(DATA_DIR, "forecasts_employment.csv"))
-
-    imp_wages = pd.read_csv(os.path.join(DATA_DIR, "importance_wages.csv"))
-    imp_shelter = pd.read_csv(os.path.join(DATA_DIR, "importance_shelter.csv"))
-    imp_emp = pd.read_csv(os.path.join(DATA_DIR, "importance_employment.csv"))
-
-    metrics = {}
-    for name in ("wages", "shelter", "employment"):
-        path = os.path.join(MODELS_DIR, f"metrics_{name}.json")
-        if os.path.exists(path):
-            with open(path) as f:
-                metrics[name] = json.load(f)
-
-    return dict(
-        hist_wages=hist_wages, hist_emp=hist_emp,
-        fc_wages=fc_wages, fc_shelter=fc_shelter, fc_emp=fc_emp,
-        imp_wages=imp_wages, imp_shelter=imp_shelter, imp_emp=imp_emp,
-        metrics=metrics,
-    )
-
-
-def run_pipeline():
-    from build_features import load_raw, make_wage_features, make_shelter_features, make_employment_features
-    from train_models import train_and_forecast, WAGE_FEATURES, SHELTER_FEATURES, EMPLOYMENT_FEATURES
-
-    with st.spinner("Building features…"):
-        wc, emp = load_raw()
-        make_wage_features(wc).to_csv(os.path.join(DATA_DIR, "features_wages.csv"), index=False)
-        make_shelter_features(wc).to_csv(os.path.join(DATA_DIR, "features_shelter.csv"), index=False)
-        make_employment_features(emp).to_csv(os.path.join(DATA_DIR, "features_employment.csv"), index=False)
-
-    with st.spinner("Training models and generating forecasts (takes ~30s)…"):
-        train_and_forecast("wages",      "features_wages.csv",      WAGE_FEATURES,       "avg_hourly_wage",          "geo")
-        train_and_forecast("shelter",    "features_shelter.csv",    SHELTER_FEATURES,    "shelter_index",            "geo")
-        train_and_forecast("employment", "features_employment.csv", EMPLOYMENT_FEATURES, "avg_employed_thousands",   "industry")
-
-    st.cache_data.clear()
-    st.success("Done! Reloading…")
-    st.rerun()
-
-
-# ── Header ─────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="header-banner">
-    <div class="header-badge">Statistics Canada · ML Forecaster · 2025–2027</div>
-    <div class="header-title">Canada Economic Forecaster</div>
-    <div class="header-subtitle">
-        Linear baseline vs. Random Forest — predicting wages, shelter costs &amp;
-        employment by province and industry.
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ── Gate: run pipeline if outputs don't exist yet ──────────────────────────────
-if not _check_ready():
-    st.markdown("""
-    <div class="setup-box">
-        <div class="section-header">First-time setup required</div>
-        <p style="color:#c8d4e8;">
-        The forecast files haven't been generated yet. Click below to run
-        feature engineering + model training (~30 seconds).
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    if st.button("Run pipeline & generate forecasts", type="primary"):
-        run_pipeline()
-    st.stop()
-
-data = load_all()
+MODEL_NAMES = {"linear": "Linear regression", "rf": "Random forest"}
+METRIC_KEYS = {"linear": "linear", "rf": "random_forest"}
 
 PROVINCES = sorted([
     "Alberta", "British Columbia", "Manitoba", "New Brunswick",
     "Newfoundland and Labrador", "Nova Scotia", "Ontario",
     "Prince Edward Island", "Quebec", "Saskatchewan",
 ])
-INDUSTRIES = sorted(data["fc_emp"]["industry"].unique().tolist())
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown('<p style="font-family:Syne;font-size:1.1rem;font-weight:700;color:#e8e8e8;">Controls</p>',
-                unsafe_allow_html=True)
-    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+# Totals and overlapping groupings: selectable, but left out of the ranking so
+# it compares like with like.
+EMPLOYMENT_AGGREGATES = {
+    "Total, all industries",
+    "Goods-producing sector",
+    "Services-producing sector",
+    "Finance, insurance, real estate, rental and leasing",
+    "Forestry, fishing, mining, quarrying, oil and gas",
+    "Wholesale and retail trade",
+    "Durables",
+    "Non-durables",
+}
 
-    target = st.selectbox(
-        "Forecast target",
-        ["Wages ($/hr)", "Shelter CPI (index)", "Employment (thousands)"],
+FEATURE_LABELS = {
+    "avg_hourly_wage_lag1": "Wage, previous year",
+    "avg_hourly_wage_lag2": "Wage, two years back",
+    "avg_hourly_wage_yoy": "Wage growth (YoY)",
+    "shelter_index_lag1": "Shelter index, previous year",
+    "shelter_index_lag2": "Shelter index, two years back",
+    "shelter_index_yoy": "Shelter growth (YoY)",
+    "cpi_index_lag1": "All-items CPI, previous year",
+    "wage_index_lag1": "Wage index, previous year",
+    "province_code": "Province",
+    "industry_code": "Industry",
+    "year": "Year (trend)",
+    "covid": "COVID period",
+    "avg_employed_thousands_lag1": "Employment, previous year",
+    "avg_employed_thousands_lag2": "Employment, two years back",
+    "avg_employed_thousands_yoy": "Employment growth (YoY)",
+}
+
+REQUIRED_FILES = [
+    f"{kind}_{t}.csv" for kind in ("forecasts", "importance") for t in TARGETS
+]
+
+
+def clean_name(name: str) -> str:
+    """Strip NAICS codes, e.g. 'Construction [23]' -> 'Construction'."""
+    return re.sub(r"\s*\[.*?\]\s*$", "", name)
+
+
+def short(name: str, n: int = 44) -> str:
+    return name if len(name) <= n else name[: n - 1].rstrip() + "…"
+
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+def outputs_ready() -> bool:
+    return all(os.path.exists(os.path.join(DATA_DIR, f)) for f in REQUIRED_FILES)
+
+
+@st.cache_data
+def load_all() -> dict:
+    read = lambda f: pd.read_csv(os.path.join(DATA_DIR, f))
+    data = {
+        "hist_wages": read("wages_vs_cpi.csv"),
+        "hist_emp": read("employment_annual.csv"),
+        "metrics": {},
+    }
+    for t in TARGETS:
+        data[f"fc_{t}"] = read(f"forecasts_{t}.csv")
+        data[f"imp_{t}"] = read(f"importance_{t}.csv")
+        path = os.path.join(MODELS_DIR, f"metrics_{t}.json")
+        if os.path.exists(path):
+            with open(path) as fh:
+                data["metrics"][t] = json.load(fh)
+    return data
+
+
+def run_pipeline():
+    from build_features import (load_raw, make_employment_features,
+                                make_shelter_features, make_wage_features)
+    from train_models import (EMPLOYMENT_FEATURES, SHELTER_FEATURES,
+                              WAGE_FEATURES, train_and_forecast)
+
+    with st.status("Running the forecasting pipeline…", expanded=True) as status:
+        st.write("Building features from the raw Statistics Canada tables")
+        wc, emp = load_raw()
+        make_wage_features(wc).to_csv(os.path.join(DATA_DIR, "features_wages.csv"), index=False)
+        make_shelter_features(wc).to_csv(os.path.join(DATA_DIR, "features_shelter.csv"), index=False)
+        make_employment_features(emp).to_csv(os.path.join(DATA_DIR, "features_employment.csv"), index=False)
+
+        st.write("Training models and forecasting wages")
+        train_and_forecast("wages", "features_wages.csv", WAGE_FEATURES, "avg_hourly_wage", "geo")
+        st.write("Training models and forecasting shelter costs")
+        train_and_forecast("shelter", "features_shelter.csv", SHELTER_FEATURES, "shelter_index", "geo")
+        st.write("Training models and forecasting employment")
+        train_and_forecast("employment", "features_employment.csv", EMPLOYMENT_FEATURES,
+                           "avg_employed_thousands", "industry")
+        status.update(label="Pipeline complete", state="complete")
+
+    st.cache_data.clear()
+    st.rerun()
+
+
+def best_model(metrics: dict) -> str:
+    if not metrics:
+        return "rf"
+    return "linear" if metrics["linear"]["RMSE"] <= metrics["random_forest"]["RMSE"] else "rf"
+
+
+# ── Chart helpers ─────────────────────────────────────────────────────────────
+def base_layout(**overrides) -> dict:
+    layout = dict(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Host Grotesk, sans-serif", color=MUTED, size=13),
+        margin=dict(l=8, r=8, t=12, b=8),
+        hoverlabel=dict(bgcolor=SURFACE, bordercolor=LINE, font=dict(color=INK, family="Host Grotesk")),
+        xaxis=dict(gridcolor="rgba(0,0,0,0)", linecolor=LINE, ticks="outside",
+                   tickcolor=GRID, zeroline=False, automargin=True,
+                   tickfont=dict(color=MUTED)),
+        yaxis=dict(gridcolor=GRID, zeroline=False, ticks="", automargin=True,
+                   tickfont=dict(color=MUTED)),
+        showlegend=False,
     )
+    layout.update(overrides)
+    return layout
 
-    if target != "Employment (thousands)":
-        selected_group = st.selectbox(
-            "Province",
-            PROVINCES,
-            index=PROVINCES.index("Ontario"),
+
+PLOT_CONFIG = {"displayModeBar": False}
+
+
+def forecast_chart(cfg, hist, fc, national, model, last_year, end_year):
+    col = cfg["hist_col"]
+    hv = cfg["hover"]
+    other = "rf" if model == "linear" else "linear"
+    fig = go.Figure()
+
+    fig.add_vrect(x0=last_year + 0.5, x1=end_year + 0.5, fillcolor=SURFACE,
+                  opacity=0.8, line_width=0, layer="below")
+    fig.add_annotation(x=last_year + 0.6, y=1, yref="paper", xanchor="left", yanchor="top",
+                       text="forecast", showarrow=False,
+                       font=dict(size=11, color=MUTED, family="JetBrains Mono"))
+
+    if national is not None and not national.empty:
+        fig.add_trace(go.Scatter(
+            x=national["year"], y=national[col], name="Canada", mode="lines",
+            line=dict(color="#6B6B6B", width=1.5, dash="dot"),
+            hovertemplate=f"Canada: %{{y{hv}}}<extra></extra>",
+        ))
+        fig.add_annotation(x=national["year"].iloc[-1], y=national[col].iloc[-1],
+                           text="Canada", showarrow=False, xanchor="left", xshift=6,
+                           font=dict(size=11, color=MUTED))
+
+    fig.add_trace(go.Scatter(
+        x=hist["year"], y=hist[col], name="Actual", mode="lines+markers",
+        line=dict(color=INK, width=2.25), marker=dict(size=5, color=INK),
+        hovertemplate=f"Actual: %{{y{hv}}}<extra></extra>",
+    ))
+
+    if not fc.empty:
+        x0, y0 = hist["year"].iloc[-1], hist[col].iloc[-1]
+        bx = [x0] + fc["year"].tolist()
+
+        if model == "rf":
+            hi = [y0] + fc["rf_upper"].tolist()
+            lo = [y0] + fc["rf_lower"].tolist()
+            fig.add_trace(go.Scatter(
+                x=bx + bx[::-1], y=hi + lo[::-1], fill="toself", fillcolor=ACCENT_SOFT, mode="lines",
+                line=dict(width=0), hoverinfo="skip", name="90% interval",
+            ))
+
+        other_col = "lr_forecast" if other == "linear" else "rf_forecast"
+        fig.add_trace(go.Scatter(
+            x=bx, y=[y0] + fc[other_col].tolist(), mode="lines",
+            name=MODEL_NAMES[other], line=dict(color=ALT_MODEL, width=1.5, dash="dash"),
+            hovertemplate=f"{MODEL_NAMES[other]}: %{{y{hv}}}<extra></extra>",
+        ))
+
+        main_col = "lr_forecast" if model == "linear" else "rf_forecast"
+        fig.add_trace(go.Scatter(
+            x=bx, y=[y0] + fc[main_col].tolist(), mode="lines+markers",
+            name=MODEL_NAMES[model], line=dict(color=ACCENT, width=3),
+            marker=dict(size=[0] + [9] * len(fc), color=ACCENT,
+                        line=dict(color=BG, width=2)),
+            hovertemplate=f"{MODEL_NAMES[model]}: %{{y{hv}}}<extra></extra>",
+        ))
+
+    fig.update_layout(**base_layout(
+        height=420,
+        hovermode="x unified",
+        showlegend=True,
+        legend=dict(orientation="h", x=0, y=1.08, xanchor="left", yanchor="bottom",
+                    bgcolor="rgba(0,0,0,0)", font=dict(size=12, color=MUTED)),
+        margin=dict(l=8, r=60, t=36, b=8),
+    ))
+    fig.update_xaxes(dtick=1, range=[hist["year"].min() - 0.4, end_year + 0.6])
+    fig.update_yaxes(tickprefix=cfg.get("tickprefix", ""), ticksuffix=cfg.get("ticksuffix", ""),
+                     tickformat=cfg.get("tickformat", ""))
+    return fig
+
+
+def ranking_chart(rank_df, selected):
+    rank_df = rank_df.sort_values("pct")
+    colors = [ACCENT if g == selected else NEUTRAL_BAR for g in rank_df["group"]]
+    text_colors = [ACCENT if g == selected else MUTED for g in rank_df["group"]]
+    fig = go.Figure(go.Bar(
+        x=rank_df["pct"], y=rank_df["label"], orientation="h",
+        marker=dict(color=colors), customdata=rank_df["group"],
+        text=[f"{v:+.1f}%" for v in rank_df["pct"]], textposition="outside",
+        textfont=dict(color=text_colors, size=12), cliponaxis=False,
+        hovertemplate="%{y}: %{x:+.1f}%<extra></extra>",
+        selected=dict(marker=dict(opacity=1)), unselected=dict(marker=dict(opacity=1)),
+    ))
+    span = max(rank_df["pct"].abs().max(), 1)
+    fig.update_layout(**base_layout(
+        height=max(260, 30 * len(rank_df) + 40),
+        bargap=0.35,
+        margin=dict(l=8, r=48, t=8, b=8),
+        clickmode="event+select",
+        dragmode=False,
+    ))
+    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=True, zerolinecolor=SUBTLE,
+                     range=[min(0, rank_df["pct"].min()) - span * 0.18,
+                            max(0, rank_df["pct"].max()) + span * 0.18],
+                     ticks="", showline=False)
+    fig.update_yaxes(showgrid=False, tickfont=dict(size=12.5, color=INK), ticklabelstandoff=10)
+    return fig
+
+
+def importance_chart(imp_df):
+    imp = imp_df.copy()
+    imp["label"] = imp["feature"].map(FEATURE_LABELS).fillna(imp["feature"])
+    imp = imp[imp["importance"] >= 0.005].sort_values("importance")
+    top = imp["importance"].max()
+    fig = go.Figure(go.Bar(
+        x=imp["importance"], y=imp["label"], orientation="h",
+        marker=dict(color=[INK if v == top else NEUTRAL_BAR for v in imp["importance"]]),
+        text=[f"{v:.0%}" for v in imp["importance"]], textposition="outside",
+        textfont=dict(color=MUTED, size=12), cliponaxis=False,
+        hovertemplate="%{y}: %{x:.1%}<extra></extra>",
+    ))
+    fig.update_layout(**base_layout(height=max(120, 34 * len(imp) + 30), bargap=0.45,
+                                    margin=dict(l=8, r=44, t=4, b=4)))
+    fig.update_xaxes(visible=False, range=[0, top * 1.18])
+    fig.update_yaxes(showgrid=False, tickfont=dict(size=12.5, color=INK), ticklabelstandoff=10)
+    return fig
+
+
+# ── Masthead ──────────────────────────────────────────────────────────────────
+head_l, head_r = st.columns([4, 1], vertical_alignment="center")
+with head_l:
+    st.markdown('<div class="brand"><span class="mark"><i></i><i></i><i></i><i></i></span>'
+                "Canada Forecaster</div>", unsafe_allow_html=True)
+
+with head_r:
+    with st.popover("How it works", icon=":material/info:", width="stretch"):
+        st.markdown(
+            """
+            **Sources**
+            Statistics Canada tables 14-10-0023-01 (employment by industry) and
+            18-10-0005-01 (CPI by province), annual, 2014 to 2024.
+
+            **Models**
+            Linear regression and a random forest (200 trees, max depth 6),
+            trained on the years before 2022 and scored on 2022 to 2024.
+
+            **Forecasts**
+            Both models are refit on every year, then rolled forward one year at a time
+            to 2027. The random forest's 90% interval runs from the 5th to the 95th
+            percentile of its trees.
+            """
         )
-        overview_groups = st.multiselect(
-            "Provinces for overview chart",
-            PROVINCES,
-            default=["British Columbia", "Ontario", "Alberta", "Quebec"],
-        )
-    else:
-        top8 = (
-            data["hist_emp"][data["hist_emp"]["year"] == 2019]
-            .nlargest(8, "avg_employed_thousands")["industry"].tolist()
-        )
-        selected_group = st.selectbox("Industry", INDUSTRIES,
-                                      index=INDUSTRIES.index(top8[0]) if top8[0] in INDUSTRIES else 0)
-        overview_groups = st.multiselect("Industries for overview", INDUSTRIES, default=top8[:5])
-
-    horizon = st.slider("Forecast horizon (years)", 1, 3, 3)
-    show_lr = st.checkbox("Show Linear baseline", value=True)
-
-    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-    if st.button("Re-run pipeline"):
-        for f in ["forecasts_wages.csv", "forecasts_shelter.csv", "forecasts_employment.csv",
-                  "importance_wages.csv", "importance_shelter.csv", "importance_employment.csv",
-                  "features_wages.csv", "features_shelter.csv", "features_employment.csv"]:
-            p = os.path.join(DATA_DIR, f)
-            if os.path.exists(p):
-                os.remove(p)
-        st.cache_data.clear()
-        st.rerun()
-
-    st.markdown("""
-    <p style="font-size:0.75rem;color:#4a5568;font-family:Inter;">
-    Data: Statistics Canada<br>
-    Linear + Random Forest (200 trees)<br>
-    Train &lt;2022 · Test 2022–2024<br>
-    Forecast: autoregressive, 90% PI
-    </p>
-    """, unsafe_allow_html=True)
-
-# ── Resolve target-specific config ────────────────────────────────────────────
-if target == "Wages ($/hr)":
-    tname = "wages"
-    group_col = "geo"
-    hist_col = "avg_hourly_wage"
-    y_label = "Avg Hourly Wage ($/hr)"
-    hist_df_full = data["hist_wages"]
-    fc_df = data["fc_wages"]
-    imp_df = data["imp_wages"]
-
-elif target == "Shelter CPI (index)":
-    tname = "shelter"
-    group_col = "geo"
-    hist_col = "shelter_index"
-    y_label = "Shelter CPI Index (2014=100)"
-    hist_df_full = data["hist_wages"]
-    fc_df = data["fc_shelter"]
-    imp_df = data["imp_shelter"]
-
-else:
-    tname = "employment"
-    group_col = "industry"
-    hist_col = "avg_employed_thousands"
-    y_label = "Avg Employed (thousands)"
-    hist_df_full = data["hist_emp"]
-    fc_df = data["fc_emp"]
-    imp_df = data["imp_emp"]
-
-fc_years = sorted(fc_df["year"].unique())[:horizon]
-fc_group = fc_df[fc_df[group_col] == selected_group & fc_df["year"].isin(fc_years)
-                 if False else (fc_df[group_col] == selected_group) & (fc_df["year"].isin(fc_years))]
-
-if group_col == "geo":
-    hist_group = hist_df_full[hist_df_full["geo"] == selected_group].sort_values("year")
-else:
-    hist_group = hist_df_full[hist_df_full["industry"] == selected_group].sort_values("year")
-
-# ── KPI strip ─────────────────────────────────────────────────────────────────
-last_actual = hist_group[hist_col].iloc[-1]
-last_year = hist_group["year"].iloc[-1]
-rf_end = fc_group["rf_forecast"].iloc[-1] if not fc_group.empty else last_actual
-lr_end = fc_group["lr_forecast"].iloc[-1] if not fc_group.empty else last_actual
-metrics_row = data["metrics"].get(tname, {})
-
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric(f"Actual {last_year}", f"{last_actual:.2f}")
-with col2:
-    rf_delta = rf_end - last_actual
-    st.metric(f"RF Forecast {fc_years[-1] if fc_years else ''}", f"{rf_end:.2f}",
-              delta=f"{rf_delta:+.2f}")
-with col3:
-    lr_delta = lr_end - last_actual
-    st.metric(f"LR Forecast {fc_years[-1] if fc_years else ''}", f"{lr_end:.2f}",
-              delta=f"{lr_delta:+.2f}")
-with col4:
-    rf_r2 = metrics_row.get("random_forest", {}).get("R2", None)
-    st.metric("RF R² (test set)", f"{rf_r2:.3f}" if rf_r2 is not None else "—")
+        if outputs_ready():
+            st.divider()
+            st.caption("Rebuilds the features and retrains both models. About 30 seconds.")
+            if st.button("Retrain the models", icon=":material/refresh:", width="stretch"):
+                run_pipeline()
 
 st.markdown(
-    "<div style='font-size:0.78rem; color:#7a8aaa; margin-top:0.4rem; line-height:1.7'>"
-    "<b style='color:#a0aec0'>RF</b> — Random Forest: an ensemble of decision trees that averages many predictions for robust forecasts. &nbsp;|&nbsp; "
-    "<b style='color:#a0aec0'>LR</b> — Linear Regression: a simple baseline that fits a straight-line trend through historical data. &nbsp;|&nbsp; "
-    "<b style='color:#a0aec0'>RF R²</b> — Coefficient of determination on the 2022–2024 test set; 1.0 = perfect fit, 0.0 = no better than the mean."
-    "</div>",
+    """
+    <h1 class="masthead-title">Wage, shelter and job forecasts for Canada</h1>
+    <p class="masthead-lede">Two models trained on Statistics Canada data from 2014 to 2024
+    project wages and shelter costs for 10 provinces, and jobs in 28 industries, to 2027.</p>
+    """,
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-
-# ── Tabs ───────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
-    "Forecast", "Feature Importance", "Model Comparison", "Province / Industry Overview"
-])
-
-# ─── Tab 1: Forecast chart ─────────────────────────────────────────────────────
-with tab1:
-    st.markdown(f'<div class="section-header">{selected_group} — Historical + Forecast ({y_label})</div>',
-                unsafe_allow_html=True)
-
-    fig = go.Figure()
-
-    # Historical
-    fig.add_trace(go.Scatter(
-        x=hist_group["year"], y=hist_group[hist_col],
-        name="Historical", mode="lines+markers",
-        line=dict(color=COLORS["historical"], width=3),
-        marker=dict(size=6),
-    ))
-
-    if not fc_group.empty:
-        # Bridge: connect last historical point to forecasts
-        bridge_x = [hist_group["year"].iloc[-1]] + fc_group["year"].tolist()
-        bridge_rf = [hist_group[hist_col].iloc[-1]] + fc_group["rf_forecast"].tolist()
-        bridge_lo = [hist_group[hist_col].iloc[-1]] + fc_group["rf_lower"].tolist()
-        bridge_hi = [hist_group[hist_col].iloc[-1]] + fc_group["rf_upper"].tolist()
-        bridge_lr = [hist_group[hist_col].iloc[-1]] + fc_group["lr_forecast"].tolist()
-
-        # RF confidence band
-        fig.add_trace(go.Scatter(
-            x=bridge_x + bridge_x[::-1],
-            y=bridge_hi + bridge_lo[::-1],
-            fill="toself", fillcolor=COLORS["band"],
-            line=dict(color="rgba(0,0,0,0)"),
-            name="RF 90% interval", showlegend=True,
-        ))
-
-        # RF forecast line
-        fig.add_trace(go.Scatter(
-            x=bridge_x, y=bridge_rf,
-            name="RF Forecast", mode="lines+markers",
-            line=dict(color=COLORS["rf"], width=2.5, dash="dot"),
-            marker=dict(size=7, symbol="diamond"),
-        ))
-
-        # LR forecast line
-        if show_lr:
-            fig.add_trace(go.Scatter(
-                x=bridge_x, y=bridge_lr,
-                name="LR Baseline", mode="lines+markers",
-                line=dict(color=COLORS["lr"], width=2, dash="dash"),
-                marker=dict(size=6),
-            ))
-
-        # Vertical divider at forecast start
-        fig.add_vline(x=last_year + 0.5, line_dash="dash",
-                      line_color="#2a3555", opacity=0.8)
-        fig.add_annotation(
-            x=last_year + 0.6, yref="paper", y=0.97,
-            text="Forecast →", showarrow=False,
-            font=dict(color="#4a5568", size=11),
+# ── First-run gate ────────────────────────────────────────────────────────────
+if not outputs_ready():
+    st.space("medium")
+    with st.container(border=True):
+        st.markdown('<p class="section-title">Build the forecasts</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="section-sub">No forecast files yet. This reads the raw tables in '
+            "<code>data/</code>, trains both models and writes forecasts for 2025 to 2027. "
+            "About 30 seconds.</p>",
+            unsafe_allow_html=True,
         )
+        if st.button("Build the forecasts", type="primary", icon=":material/play_arrow:"):
+            run_pipeline()
+    st.stop()
 
-    fig.update_layout(**LAYOUT, height=420, yaxis_title=y_label, xaxis_title="Year",
-                      hovermode="x unified", title=f"{selected_group} — {y_label}")
-    st.plotly_chart(fig, use_container_width=True)
+data = load_all()
 
-    if not fc_group.empty:
-        st.markdown("**Forecast values**")
-        display = fc_group[["year", "lr_forecast", "rf_forecast", "rf_lower", "rf_upper"]].copy()
-        display.columns = ["Year", "LR Forecast", "RF Forecast", "RF Lower (90%)", "RF Upper (90%)"]
-        st.dataframe(display.set_index("Year").round(3), use_container_width=True)
+# ── Controls ──────────────────────────────────────────────────────────────────
+st.space("medium")
+tname = st.segmented_control(
+    "Indicator", list(TARGETS), format_func=lambda t: TARGETS[t]["label"],
+    default="wages", key="target", label_visibility="collapsed",
+) or "wages"
+cfg = TARGETS[tname]
+group_col = cfg["group_col"]
+hist_all = data[cfg["hist_key"]]
+fc_all = data[f"fc_{tname}"]
+metrics = data["metrics"].get(tname, {})
+best = best_model(metrics)
 
-# ─── Tab 2: Feature importance ────────────────────────────────────────────────
-with tab2:
-    st.markdown(f'<div class="section-header">Random Forest Feature Importance — {target}</div>',
-                unsafe_allow_html=True)
+if group_col == "geo":
+    groups = PROVINCES
+    default_group = "Ontario"
+    fmt_group = lambda g: g
+else:
+    names = sorted(fc_all["industry"].unique(), key=clean_name)
+    totals = [g for g in names if clean_name(g) == "Total, all industries"]
+    groups = totals + [g for g in names if g not in totals]
+    default_group = groups[0]
+    fmt_group = clean_name
 
-    FEATURE_LABELS = {
-        "avg_hourly_wage_lag1": "Wage (t−1)",
-        "avg_hourly_wage_lag2": "Wage (t−2)",
-        "avg_hourly_wage_yoy": "Wage YoY %",
-        "shelter_index_lag1": "Shelter CPI (t−1)",
-        "cpi_index_lag1": "All-Items CPI (t−1)",
-        "province_code": "Province",
-        "year": "Year (trend)",
-        "covid": "COVID dummy",
-        "shelter_index_lag2": "Shelter CPI (t−2)",
-        "shelter_index_yoy": "Shelter CPI YoY %",
-        "wage_index_lag1": "Wage Index (t−1)",
-        "industry_code": "Industry",
-        "avg_employed_thousands_lag1": "Employment (t−1)",
-        "avg_employed_thousands_lag2": "Employment (t−2)",
-        "avg_employed_thousands_yoy": "Employment YoY %",
-    }
+group_key = f"group_{tname}"
+if st.session_state.get(group_key) not in groups:
+    st.session_state[group_key] = default_group
 
-    imp_plot = imp_df.copy()
-    imp_plot["label"] = imp_plot["feature"].map(FEATURE_LABELS).fillna(imp_plot["feature"])
-    imp_plot = imp_plot.sort_values("importance")
+forecast_years = sorted(int(y) for y in fc_all["year"].unique())
 
-    fig_imp = go.Figure(go.Bar(
-        x=imp_plot["importance"],
-        y=imp_plot["label"],
-        orientation="h",
-        marker_color=[
-            "#3b82f6" if imp_plot["importance"].iloc[i] == imp_plot["importance"].max()
-            else "#1d4ed8"
-            for i in range(len(imp_plot))
-        ],
-        text=imp_plot["importance"].round(3),
-        textposition="outside",
-        textfont=dict(color="#c8d4e8", size=11),
-    ))
-    fig_imp.update_layout(
-        **LAYOUT, height=380,
-        xaxis_title="Importance (mean decrease in impurity)",
-        title="Which features drive predictions most?",
+with st.container(border=True):
+    c1, c2, c3 = st.columns([1.9, 1.3, 1.9], gap="medium")
+    with c1:
+        group = st.selectbox(cfg["group_label"], groups, format_func=fmt_group, key=group_key)
+    with c2:
+        end_year = st.segmented_control(
+            "Forecast to", forecast_years, default=forecast_years[-1],
+            format_func=str, key="horizon",
+        ) or forecast_years[-1]
+    with c3:
+        model = st.segmented_control(
+            "Model", ["linear", "rf"], default=best, key=f"model_{tname}",
+            format_func=lambda m: MODEL_NAMES[m] + (" ★" if m == best else ""),
+            help="★ marks the model with the lower error on 2022 to 2024, years it never trained on.",
+        ) or best
+
+# ── Slice data ────────────────────────────────────────────────────────────────
+col = cfg["hist_col"]
+fc_col = "lr_forecast" if model == "linear" else "rf_forecast"
+hist = hist_all[hist_all[group_col] == group].sort_values("year")
+fc = fc_all[(fc_all[group_col] == group) & (fc_all["year"] <= end_year)].sort_values("year")
+national = (hist_all[hist_all["geo"] == "Canada"].sort_values("year")
+            if group_col == "geo" else None)
+
+last_year = int(hist["year"].iloc[-1])
+last_val = float(hist[col].iloc[-1])
+proj_val = float(fc[fc_col].iloc[-1]) if not fc.empty else last_val
+change = proj_val - last_val
+pct = change / last_val * 100 if last_val else 0.0
+fmt = cfg["fmt"]
+display_group = fmt_group(group)
+
+# ── Headline ──────────────────────────────────────────────────────────────────
+st.space("small")
+direction = "up" if change >= 0 else "down"
+subject = ("Total employment in Canada is" if display_group == "Total, all industries"
+           else cfg["subject"].format(g=display_group))
+st.markdown(
+    f'<p class="headline">{subject} projected to reach {cfg.get("prefix", "")}<b>{fmt(proj_val)}</b> by {end_year}, '
+    f"{direction} {abs(pct):.1f}% from {last_year}.</p>",
+    unsafe_allow_html=True,
+)
+
+mkey = METRIC_KEYS[model]
+mae = metrics.get(mkey, {}).get("MAE")
+if model == "rf" and not fc.empty:
+    lo, hi = fc["rf_lower"].iloc[-1], fc["rf_upper"].iloc[-1]
+    fourth = ("90% interval", f"{fmt(lo)} – {fmt(hi)}", f"Random forest, {end_year}", "compact")
+else:
+    fourth = ("Typical error", f"± {fmt(mae)}" if mae is not None else "—",
+              "Average miss, 2022 to 2024", "")
+
+tiles = [
+    (f"Actual, {last_year}", fmt(last_val), "Latest Statistics Canada figure", ""),
+    (f"Projected, {end_year}", fmt(proj_val), MODEL_NAMES[model], "accent"),
+    ("Change", f"{'▲' if change >= 0 else '▼'} {abs(pct):.1f}%",
+     f"{'+' if change >= 0 else '−'}{fmt(abs(change))} over {end_year - last_year} yr", ""),
+    fourth,
+]
+st.markdown(
+    '<div class="tiles">' + "".join(
+        f'<div class="tile {cls}"><div class="tile-label">{lab}</div>'
+        f'<div class="tile-value {cls}">{val}</div><div class="tile-note">{note}</div></div>'
+        for lab, val, note, cls in tiles
+    ) + "</div>",
+    unsafe_allow_html=True,
+)
+
+# ── Main chart ────────────────────────────────────────────────────────────────
+st.plotly_chart(
+    forecast_chart(cfg, hist, fc, national, model, last_year, end_year),
+    config=PLOT_CONFIG, theme=None, key=f"main_{tname}",
+)
+
+with st.expander("Forecast table", icon=":material/table_rows:"):
+    table = fc[["year", "lr_forecast", "rf_forecast", "rf_lower", "rf_upper"]].rename(columns={
+        "year": "Year", "lr_forecast": "Linear regression", "rf_forecast": "Random forest",
+        "rf_lower": "RF lower (90%)", "rf_upper": "RF upper (90%)",
+    })
+    st.dataframe(table, hide_index=True,
+                 column_config={"Year": st.column_config.NumberColumn(format="%d")})
+    st.download_button(
+        "Download the table", table.to_csv(index=False),
+        file_name=f"forecast_{tname}_{re.sub(r'[^a-z0-9]+', '_', display_group.lower())}.csv",
+        mime="text/csv", icon=":material/download:",
     )
-    st.plotly_chart(fig_imp, use_container_width=True)
 
-    top_feat = imp_plot.iloc[-1]["label"]
-    top_imp = imp_plot.iloc[-1]["importance"]
-    st.markdown(f"""
-    <div class="metric-card">
-        <div style="font-size:0.7rem;color:#3b82f6;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px;">
-            Top driver
-        </div>
-        <div style="color:#e8e8e8;font-size:0.95rem;">
-            <strong>{top_feat}</strong> accounts for
-            <strong>{top_imp*100:.1f}%</strong> of the Random Forest's
-            predictive signal for {target.lower()}.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+# ── Comparison across groups ──────────────────────────────────────────────────
+st.markdown('<div class="rule"></div>', unsafe_allow_html=True)
+noun = "province" if group_col == "geo" else "industry"
+plural = "provinces" if group_col == "geo" else "industries"
 
-# ─── Tab 3: Model comparison ──────────────────────────────────────────────────
-with tab3:
-    st.markdown('<div class="section-header">Linear Regression vs. Random Forest — Test-Set Metrics</div>',
-                unsafe_allow_html=True)
+last_actuals = (hist_all[hist_all[group_col].isin(fc_all[group_col].unique())]
+                .sort_values("year").groupby(group_col)[col].last())
+end_fc = fc_all[fc_all["year"] == end_year].set_index(group_col)[fc_col]
+rank = pd.DataFrame({"last": last_actuals, "end": end_fc}).dropna()
+rank["pct"] = (rank["end"] / rank["last"] - 1) * 100
+rank = rank.reset_index().rename(columns={group_col: "group"})
+rank["label"] = rank["group"].map(lambda g: short(fmt_group(g)))
+if group_col == "industry":
+    rank = rank[~rank["group"].map(clean_name).isin(EMPLOYMENT_AGGREGATES)]
 
-    if tname in data["metrics"]:
-        m = data["metrics"][tname]
-        comparison = pd.DataFrame({
-            "Model": ["Linear Regression", "Random Forest"],
-            "MAE": [m["linear"]["MAE"], m["random_forest"]["MAE"]],
-            "RMSE": [m["linear"]["RMSE"], m["random_forest"]["RMSE"]],
-            "R²": [m["linear"]["R2"], m["random_forest"]["R2"]],
-        })
+rank_sorted = rank.sort_values("pct", ascending=False).reset_index(drop=True)
+position = rank_sorted.index[rank_sorted["group"] == group]
 
-        col_a, col_b = st.columns([1, 2])
+st.markdown(f'<p class="section-title">{plural.capitalize()} ranked by projected change</p>',
+            unsafe_allow_html=True)
+sub = (f"Change from {last_year} to {end_year}, {MODEL_NAMES[model].lower()} forecast. "
+       f"Click a bar to open that {noun}.")
+if len(position):
+    sub = f"{display_group} ranks #{position[0] + 1} of {len(rank_sorted)}. " + sub
+if group_col == "industry":
+    sub += " Sector totals and overlapping groupings are left out."
+st.markdown(f'<p class="section-sub">{sub}</p>', unsafe_allow_html=True)
 
-        with col_a:
-            st.markdown("**Test-set performance**")
-            st.dataframe(
-                comparison.set_index("Model").style
-                .highlight_min(subset=["MAE", "RMSE"], color="#0d2240", axis=0)
-                .highlight_max(subset=["R²"], color="#0d2240", axis=0)
-                .format({"MAE": "{:.4f}", "RMSE": "{:.4f}", "R²": "{:.4f}"}),
-                use_container_width=True,
-            )
+rank_key = f"rank_{tname}"
 
-            rf_improvement = (
-                (m["linear"]["RMSE"] - m["random_forest"]["RMSE"])
-                / m["linear"]["RMSE"] * 100
-            )
-            st.markdown(f"""
-            <div class="metric-card" style="margin-top:1rem;">
-                <div style="font-size:0.7rem;color:#22c55e;letter-spacing:0.1em;
-                            text-transform:uppercase;margin-bottom:4px;">
-                    RF improvement over baseline
-                </div>
-                <div style="color:#e8e8e8;font-size:0.95rem;">
-                    Random Forest reduced RMSE by
-                    <strong>{rf_improvement:.1f}%</strong> vs. Linear Regression.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
 
-        with col_b:
-            metrics_long = comparison.melt(id_vars="Model", var_name="Metric", value_name="Value")
-            fig_m = px.bar(
-                metrics_long[metrics_long["Metric"] != "R²"],
-                x="Metric", y="Value", color="Model", barmode="group",
-                color_discrete_map={"Linear Regression": COLORS["lr"], "Random Forest": COLORS["rf"]},
-                template="plotly_dark", title="MAE & RMSE comparison",
-            )
-            fig_m.update_layout(**LAYOUT, height=340)
-            st.plotly_chart(fig_m, use_container_width=True)
+def _on_rank_select():
+    points = st.session_state.get(rank_key, {}).get("selection", {}).get("points", [])
+    if points:
+        picked = points[0].get("customdata")
+        if isinstance(picked, list):
+            picked = picked[0]
+        if picked in groups:
+            st.session_state[group_key] = picked
 
-    # Show all-target metrics summary
-    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-header">All Targets — RF R² Summary</div>', unsafe_allow_html=True)
 
-    all_metrics = []
-    for n, label in [("wages", "Wages"), ("shelter", "Shelter CPI"), ("employment", "Employment")]:
-        if n in data["metrics"]:
-            all_metrics.append({
-                "Target": label,
-                "LR R²": data["metrics"][n]["linear"]["R2"],
-                "RF R²": data["metrics"][n]["random_forest"]["R2"],
-                "LR MAE": data["metrics"][n]["linear"]["MAE"],
-                "RF MAE": data["metrics"][n]["random_forest"]["MAE"],
-            })
-    if all_metrics:
-        st.dataframe(pd.DataFrame(all_metrics).set_index("Target").round(4),
-                     use_container_width=True)
+st.plotly_chart(
+    ranking_chart(rank, group), config=PLOT_CONFIG, theme=None, key=rank_key,
+    on_select=_on_rank_select, selection_mode="points",
+)
 
-# ─── Tab 4: Overview ──────────────────────────────────────────────────────────
-with tab4:
-    label_4 = "Province" if group_col == "geo" else "Industry"
-    st.markdown(f'<div class="section-header">RF Forecast Overlay — All {label_4}s ({y_label})</div>',
-                unsafe_allow_html=True)
+# ── Model check ───────────────────────────────────────────────────────────────
+st.markdown('<div class="rule"></div>', unsafe_allow_html=True)
+st.markdown('<p class="section-title">How the two models scored</p>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="section-sub">Both models trained on the years before 2022, then forecast '
+    "2022 to 2024, years they never saw.</p>",
+    unsafe_allow_html=True,
+)
 
-    if overview_groups:
-        fig_ov = go.Figure()
-        palette = px.colors.qualitative.Set2
-
-        for i, grp in enumerate(overview_groups):
-            hist_g = (
-                hist_df_full[hist_df_full[group_col] == grp].sort_values("year")
-                if group_col in hist_df_full.columns
-                else pd.DataFrame()
-            )
-            fc_g = fc_df[(fc_df[group_col] == grp) & (fc_df["year"].isin(fc_years))]
-
-            color = palette[i % len(palette)]
-
-            if not hist_g.empty:
-                fig_ov.add_trace(go.Scatter(
-                    x=hist_g["year"], y=hist_g[hist_col],
-                    name=grp, mode="lines",
-                    line=dict(color=color, width=2),
-                    legendgroup=grp,
-                ))
-
-            if not fc_g.empty:
-                bridge_x = [hist_g["year"].iloc[-1]] + fc_g["year"].tolist() if not hist_g.empty else fc_g["year"].tolist()
-                bridge_y = ([hist_g[hist_col].iloc[-1]] + fc_g["rf_forecast"].tolist()
-                             if not hist_g.empty else fc_g["rf_forecast"].tolist())
-                fig_ov.add_trace(go.Scatter(
-                    x=bridge_x, y=bridge_y,
-                    name=f"{grp} (forecast)", mode="lines+markers",
-                    line=dict(color=color, width=2, dash="dot"),
-                    marker=dict(size=7, symbol="diamond"),
-                    legendgroup=grp, showlegend=False,
-                ))
-
-        if hist_g is not None and not hist_g.empty:
-            fig_ov.add_vline(x=hist_g["year"].iloc[-1] + 0.5,
-                             line_dash="dash", line_color="#2a3555", opacity=0.8)
-
-        fig_ov.update_layout(
-            **LAYOUT, height=460,
-            yaxis_title=y_label, xaxis_title="Year",
-            hovermode="x unified",
-            title=f"All selected {label_4}s — historical + RF forecast",
-        )
-        st.plotly_chart(fig_ov, use_container_width=True)
-
-        # Ranked forecast table
-        if fc_years:
-            final_yr = max(fc_years)
-            fc_table = fc_df[
-                (fc_df[group_col].isin(overview_groups)) & (fc_df["year"] == final_yr)
-            ][[group_col, "rf_forecast", "rf_lower", "rf_upper"]].copy()
-
-            # Add last actual
-            if group_col == "geo":
-                actuals = (
-                    hist_df_full[hist_df_full["geo"].isin(overview_groups)]
-                    .sort_values("year").groupby("geo")[hist_col].last().reset_index()
-                    .rename(columns={hist_col: "last_actual", "geo": group_col})
-                )
+left, right = st.columns([1, 1], gap="large")
+with left:
+    with st.container(border=True):
+        st.markdown("**Error on 2022 to 2024**")
+        if metrics:
+            lin, rf = metrics["linear"], metrics["random_forest"]
+            rows = [("Mean absolute error", "MAE", True),
+                    ("Root mean squared error", "RMSE", True),
+                    ("R²", "R2", False)]
+            body = ""
+            for name, k, lower_better in rows:
+                a, b = lin[k], rf[k]
+                a_best = (a <= b) if lower_better else (a >= b)
+                fa = f"{a:,.2f}" if k != "R2" else f"{a:.3f}"
+                fb = f"{b:,.2f}" if k != "R2" else f"{b:.3f}"
+                body += (f"<tr><td>{name}</td>"
+                         f"<td class='{'best' if a_best else 'worse'}'>{fa}</td>"
+                         f"<td class='{'worse' if a_best else 'best'}'>{fb}</td></tr>")
+            ratio = max(lin["RMSE"], rf["RMSE"]) / max(min(lin["RMSE"], rf["RMSE"]), 1e-9)
+            if best == "linear":
+                verdict = (f"<b>Linear regression wins here.</b> Its error is "
+                           f"{ratio:,.1f}× smaller. A random forest can't predict past the highest "
+                           "value it trained on, so it flattens out on a series that keeps setting "
+                           "new highs.")
             else:
-                actuals = (
-                    hist_df_full[hist_df_full["industry"].isin(overview_groups)]
-                    .sort_values("year").groupby("industry")[hist_col].last().reset_index()
-                    .rename(columns={hist_col: "last_actual", "industry": group_col})
-                )
+                verdict = (f"<b>Random forest wins here.</b> Its error is "
+                           f"{ratio:,.1f}× smaller: it picks up bends in the series a straight "
+                           "line misses.")
+            st.markdown(
+                "<table class='scorecard'><tr><th>Metric</th><th>Linear</th>"
+                f"<th>Random forest</th></tr>{body}</table>"
+                f"<p class='verdict'>{verdict}</p>",
+                unsafe_allow_html=True,
+            )
+            if tname != "shelter":
+                st.caption("Errors are in the indicator's own units: "
+                           + ("dollars per hour." if tname == "wages" else "thousands of jobs."))
+            else:
+                st.caption("Errors are in index points (2014 = 100).")
+        else:
+            st.caption("No scores yet. Retrain the models from How it works.")
 
-            fc_table = fc_table.merge(actuals, on=group_col, how="left")
-            fc_table["projected change"] = fc_table["rf_forecast"] - fc_table["last_actual"]
-            fc_table = fc_table.sort_values("projected change", ascending=False)
-            fc_table.columns = [label_4, f"RF Forecast {final_yr}", "Lower 90%", "Upper 90%",
-                                 f"Last Actual", "Projected Δ"]
-            st.markdown(f"**Ranked by projected change by {final_yr}**")
-            st.dataframe(fc_table.set_index(label_4).round(3), use_container_width=True)
+with right:
+    with st.container(border=True):
+        st.markdown("**What the random forest relies on**")
+        imp_df = data[f"imp_{tname}"]
+        hidden = int((imp_df["importance"] < 0.005).sum())
+        st.caption("Each input's share of the forest's splits (impurity importance)."
+                   + (f" {hidden} inputs under 0.5% are hidden." if hidden else ""))
+        st.plotly_chart(importance_chart(imp_df), config=PLOT_CONFIG,
+                        theme=None, key=f"imp_{tname}")
 
-# ── Footer ─────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="footer">
-    Data: Statistics Canada open data · Tables 14-10-0023-01, 18-10-0005-01<br>
-    Models: scikit-learn LinearRegression + RandomForestRegressor (200 trees, max_depth=6)<br>
-    Train &lt; 2022 · Test 2022–2024 · Forecast 2025–2027 via autoregressive rollout · 90% prediction intervals from RF tree distribution<br>
-    Built with Python, scikit-learn, Pandas, Plotly &amp; Streamlit
-</div>
-""", unsafe_allow_html=True)
+# ── Footer ────────────────────────────────────────────────────────────────────
+st.markdown(
+    f"""
+    <div class="footer">
+    Data: Statistics Canada tables 14-10-0023-01 and 18-10-0005-01, annual, 2014 to 2024.
+    Each province's shelter index is rebased to 2014 = 100.<br>
+    These are model projections, not official Statistics Canada estimates.
+    Built with pandas, scikit-learn, Plotly and Streamlit.
+    <a href="{REPO}" target="_blank">Get the code</a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)

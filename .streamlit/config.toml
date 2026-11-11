@@ -1,0 +1,20 @@
+[theme]
+base = "dark"
+primaryColor = "#DAFA9C"
+backgroundColor = "#0F0F0F"
+secondaryBackgroundColor = "#1A1A1A"
+textColor = "#FFFFFF"
+borderColor = "#2A2A2A"
+showWidgetBorder = true
+baseRadius = "0.5rem"
+font = "Host Grotesk:https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500;600&display=swap"
+headingFont = "Host Grotesk:https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500;600&display=swap"
+codeFont = "JetBrains Mono:https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+linkColor = "#DAFA9C"
+dataframeHeaderBackgroundColor = "#1A1A1A"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

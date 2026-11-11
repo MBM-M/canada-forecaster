@@ -33,3 +33,7 @@ Thumbs.db
 
 # Streamlit
 .streamlit/secrets.toml
+
+# taste-skill build artifacts (checker profile, screenshots)
+site/.taste-skill/
+site/shots/
