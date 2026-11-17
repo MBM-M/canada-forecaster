@@ -22,6 +22,8 @@ models/*.joblib
 
 # Data (raw/generated — regenerate with build_features.py)
 data/*.csv
+data/*.db
+data/*.db-*
 
 # OS
 .DS_Store
